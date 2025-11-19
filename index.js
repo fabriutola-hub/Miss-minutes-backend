@@ -10,12 +10,12 @@ const app = express();
 // 🔥 1. ACTIVAR CARPETA PÚBLICA (Con ruta absoluta para Render)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 🟢 CORRECCIÓN FINAL: Se ha quitado el slash (/) al final del dominio de Vercel
+// 🟢 CORRECCIÓN DE CORS: Dominio de Vercel sin el slash final (/)
 app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://localhost:3000',
-    // ✅ DOMINIO DE VERCEL CORREGIDO (SIN SLASH FINAL)
+    // ✅ DOMINIO DE VERCEL CORREGIDO
     'https://mi-proyecto-pe-xd-8sv6-bpb7gm2n6-fabriutola-hubs-projects.vercel.app'
   ],
   methods: ['GET', 'POST'],
@@ -154,8 +154,9 @@ app.post('/api/chat', async (req, res) => {
     
     if (history.length > 0) {
       fullPrompt += 'REGISTRO PREVIO:\n';
+      // 🟢 CORRECCIÓN DE SINTAXIS: Se arregló la concatenación de la historia aquí
       history.slice(-4).forEach(msg => {
-        full abused = msg.content}\n`;
+        fullPrompt += `${msg.role}: ${msg.content}\n`;
       });
       fullPrompt += '\n';
     }

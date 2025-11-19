@@ -7,9 +7,8 @@ require('dotenv').config();
 
 const app = express();
 
-// Servir archivos estáticos (imágenes) si están en la carpeta public del backend
-// Esto asegura que la URL funcione si las imágenes viven en el servidor
-app.use(express.static(path.join(__dirname, 'public'))); 
+// 🔥 1. ACTIVAR CARPETA PÚBLICA (Con ruta absoluta para Render)
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
@@ -26,7 +25,7 @@ if (!process.env.GEMINI_API_KEY) {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// 📍 LEER ARCHIVO GEOJSON
+// 📍 LEER ARCHIVO GEOJSON (EXPEDIENTES TVA)
 let geoJsonData = null;
 const geoJsonPath = path.join(__dirname, 'data', 'puntos_muela.geojson');
 
@@ -44,7 +43,7 @@ try {
   console.error('❌ Corrupción de datos:', error.message);
 }
 
-// 🖼️ FUNCIONES DE IMAGEN (Se mantienen igual)
+// 🖼️ PREPARAR IMAGEN (Backend Logic)
 function imageToBase64(imagePath) {
   try {
     const imageBuffer = fs.readFileSync(imagePath);
@@ -64,10 +63,11 @@ function prepareImageForGemini(imagePath) {
   
   const base64Data = imageToBase64(imagePath);
   if (!base64Data) return null;
+  
   return { inlineData: { data: base64Data, mimeType: mimeType } };
 }
 
-// 🔥 CORRECCIÓN AQUÍ: OCULTAMOS LA URL A LA IA
+// 🗺️ FORMATO DE DATOS PARA LA IA (Ocultamos URL para que no la escriba)
 function formatGeoJsonForChatbot(geoJson) {
   if (!geoJson || !geoJson.features) return '';
   
@@ -76,22 +76,15 @@ function formatGeoJsonForChatbot(geoJson) {
   
   geoJson.features.forEach((feature, index) => {
     const props = feature.properties || {};
-    const coords = feature.geometry?.coordinates || [];
     
     formatted += `REGISTRO #${index + 1}: ${props.LUGAR}\n`;
-    
-    if (coords.length >= 2) {
-      formatted += `   📍 COORDENADAS: Lat ${coords[1].toFixed(6)}°, Lng ${coords[0].toFixed(6)}°\n`;
-    }
-    
     if (props.descripcion) {
       formatted += `   ℹ️ DATOS: ${props.descripcion}\n`;
     }
     
-    // 🔥 AQUÍ ESTÁ EL CAMBIO IMPORTANTE:
-    // Le decimos que SÍ hay foto, pero NO le damos la URL para que no la escriba.
+    // Le decimos que hay foto, pero NO le damos la ruta.
     if (props.imagenUrl) {
-      formatted += `   📸 EVIDENCIA VISUAL: DISPONIBLE EN ARCHIVO (El sistema la adjuntará automáticamente si mencionas este lugar)\n`;
+      formatted += `   📸 EVIDENCIA VISUAL: DISPONIBLE EN ARCHIVO (Menciona este lugar para mostrarla)\n`;
     }
     
     formatted += '\n';
@@ -99,24 +92,24 @@ function formatGeoJsonForChatbot(geoJson) {
   
   formatted += '⚠️ PROTOCOLO DE ASISTENCIA:\n';
   formatted += '- Si la Variante pregunta por un lugar, describe los datos del registro.\n';
-  formatted += '- IMPORTANTE: NUNCA escribas rutas de archivos (ej: /imagenes/...). El sistema se encarga de mostrar la foto.\n';
-  formatted += '- Simplemente di: "Aquí tienes una imagen de los archivos" o similar.\n\n';
+  formatted += '- IMPORTANTE: Nunca escribas rutas de archivos o URLs. El sistema mostrará la foto automáticamente si mencionas el nombre del lugar.\n\n';
   
   return formatted;
 }
 
+// 🔥 PERSONALIDAD: MISS MINUTES
 const CHATBOT_PERSONALITY = `Eres "Miss Minutes", la IA de la AVT.
 
 PERSONALIDAD:
-- Tono: Alegre, sureña, eficiente, burocrática.
-- Frases: "Cielos", "Variante", "Por todos los tiempos".
+- Tono: Alegre, sureña (estilo retro), eficiente, burocrática.
+- Frases: "Cielos", "Variante", "Por todos los tiempos, siempre".
 
 MISIÓN:
-- Guiar a la variante en la Muela del Diablo usando los Expedientes.
+- Guiar a la variante en La Muela del Diablo usando los Expedientes.
 
 ESTILO DE RESPUESTA:
 - Conversacional y útil.
-- NUNCA inventes rutas de imágenes. Solo menciona que la evidencia visual está disponible.`;
+- Si hay evidencia visual disponible para un lugar, di algo como "Aquí tienes la evidencia visual de los archivos" o "Mira lo que encontré en el expediente", pero NO intentes generar la imagen tú misma ni escribas rutas.`;
 
 const conversationHistories = new Map();
 
@@ -131,11 +124,15 @@ app.get('/api/health', (req, res) => {
 app.post('/api/chat', async (req, res) => {
   try {
     const { message, sessionId = 'default', useVision = false } = req.body;
+    const PORT = process.env.PORT || 5000;
+
+    // 🔥 2. DETECTAR URL BASE AUTOMÁTICAMENTE
+    const BASE_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
     
     console.log(`📩 [VARIANTE ${sessionId.substring(0,5)}]: "${message}"`);
 
     if (!message || message.trim() === '') {
-      return res.status(400).json({ error: 'Solicitud vacía' });
+      return res.status(400).json({ error: 'Solicitud vacía detectada' });
     }
 
     const model = genAI.getGenerativeModel({ 
@@ -143,16 +140,11 @@ app.post('/api/chat', async (req, res) => {
       generationConfig: { temperature: 0.85, maxOutputTokens: 800 }
     });
 
-    if (!conversationHistories.has(sessionId)) {
-      conversationHistories.set(sessionId, []);
-    }
-
+    if (!conversationHistories.has(sessionId)) conversationHistories.set(sessionId, []);
     const history = conversationHistories.get(sessionId);
+
     let fullPrompt = CHATBOT_PERSONALITY;
-    
-    if (geoJsonData) {
-      fullPrompt += formatGeoJsonForChatbot(geoJsonData);
-    }
+    if (geoJsonData) fullPrompt += formatGeoJsonForChatbot(geoJsonData);
     
     if (history.length > 0) {
       fullPrompt += 'REGISTRO PREVIO:\n';
@@ -167,7 +159,9 @@ app.post('/api/chat', async (req, res) => {
     let contentParts = [fullPrompt];
     let includedImages = [];
 
-    // (Lógica de Visión omitida por brevedad, se mantiene igual)
+    // (Lógica de Visión omitida, se mantiene igual)
+
+    console.log('🟠 Consultando al Procesador Central...');
 
     const result = await model.generateContent(contentParts);
     const response = await result.response;
@@ -175,21 +169,34 @@ app.post('/api/chat', async (req, res) => {
 
     if (!botResponse) botResponse = 'Interferencia temporal. Repite, dulzura.';
 
-    // 📸 LÓGICA DE ADJUNTAR IMÁGENES (Esto es lo que hace que la imagen aparezca)
+    // 📸 3. LÓGICA DE IMÁGENES INTELIGENTE (MATCH PARCIAL)
     const imagesInResponse = [];
     if (geoJsonData && !useVision) { 
       geoJsonData.features.forEach(feature => {
-        const lugar = feature.properties.LUGAR;
+        const lugar = feature.properties.LUGAR; // Ej: "Cima Muela del Diablo"
         const imagenUrl = feature.properties.imagenUrl;
         
-        // Si el bot menciona el NOMBRE del lugar, el sistema adjunta la foto invisiblemente
-        if (imagenUrl && botResponse.toLowerCase().includes(lugar.toLowerCase())) {
-          imagesInResponse.push({
-            lugar: lugar,
-            url: imagenUrl, // Aquí enviamos la URL real al frontend
-            descripcion: feature.properties.descripcion,
-            coordenadas: feature.geometry.coordinates
-          });
+        if (imagenUrl) {
+          // a) Dividimos el nombre del lugar en palabras clave (ignorando cortas)
+          // Ej: "Cima", "Muela", "Diablo"
+          const palabrasClave = lugar.toLowerCase().split(' ').filter(p => p.length > 3);
+          const respuestaBotLower = botResponse.toLowerCase();
+
+          // b) Verificamos si ALGUNA palabra clave está en la respuesta del bot
+          const mencionado = palabrasClave.some(palabra => respuestaBotLower.includes(palabra));
+          const coincidenciaExacta = respuestaBotLower.includes(lugar.toLowerCase());
+
+          if (mencionado || coincidenciaExacta) {
+            console.log(`📸 Foto detectada para envío: ${lugar}`);
+            
+            // 🔥 c) FIX DE ESPACIOS Y URL COMPLETA
+            imagesInResponse.push({
+              lugar: lugar,
+              url: `${BASE_URL}${encodeURI(imagenUrl)}`, 
+              descripcion: feature.properties.descripcion,
+              coordenadas: feature.geometry.coordinates
+            });
+          }
         }
       });
     }
@@ -199,20 +206,27 @@ app.post('/api/chat', async (req, res) => {
 
     if (history.length > 16) history.splice(0, history.length - 16);
 
+    console.log(`✅ Respuesta enviada (${botResponse.length} chars) + ${imagesInResponse.length} archivos`);
+
     res.json({ 
       response: botResponse,
-      images: imagesInResponse.length > 0 ? imagesInResponse : undefined
+      images: imagesInResponse.length > 0 ? imagesInResponse : undefined,
+      analyzedImages: includedImages.length > 0 ? includedImages : undefined
     });
 
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('❌ Error Crítico:', error.message);
     res.status(500).json({ error: 'Error en la Línea Temporal' });
   }
 });
 
-// (Resto de endpoints igual...)
+// 🗺️ ENDPOINTS EXTRA
 app.get('/api/geojson', (req, res) => geoJsonData ? res.json(geoJsonData) : res.status(404).send('No data'));
 app.post('/api/reset', (req, res) => { conversationHistories.delete(req.body.sessionId); res.json({msg:'Pruned'}); });
+app.get('/api/lugar/:nombre', (req, res) => {
+  const lugar = geoJsonData?.features.find(f => f.properties.LUGAR.toLowerCase().includes(req.params.nombre.toLowerCase()));
+  lugar ? res.json(lugar) : res.status(404).json({error: 'Not found'});
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🕒 MISS MINUTES ONLINE - PORT ${PORT}`));

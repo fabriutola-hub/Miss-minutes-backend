@@ -7,6 +7,7 @@ require('dotenv').config();
 
 const app = express();
 
+// Configuración de CORS
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
   methods: ['GET', 'POST'],
@@ -15,30 +16,31 @@ app.use(cors({
 
 app.use(express.json());
 
+// Verificación de API Key
 if (!process.env.GEMINI_API_KEY) {
-  console.error('❌ ERROR: GEMINI_API_KEY no está configurada en el archivo .env');
+  console.error('❌ ERROR CRÍTICO: Llave de acceso al Mainframe (GEMINI_API_KEY) no encontrada.');
   process.exit(1);
 }
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// 📍 LEER ARCHIVO GEOJSON
+// 📍 LEER ARCHIVO GEOJSON (EXPEDIENTES TVA)
 let geoJsonData = null;
 const geoJsonPath = path.join(__dirname, 'data', 'puntos_muela.geojson');
 
-console.log(`🔍 Buscando GeoJSON en: ${geoJsonPath}`);
+console.log(`🔍 Escaneando Archivos de la Línea Temporal en: ${geoJsonPath}`);
 
 try {
   if (!fs.existsSync(geoJsonPath)) {
-    console.error('❌ Archivo no encontrado:', geoJsonPath);
-    console.error('💡 Crea: server/data/puntos_muela.geojson');
+    console.error('❌ Expediente perdido:', geoJsonPath);
+    console.error('💡 Acción requerida: Restaurar server/data/puntos_muela.geojson');
   } else {
     const rawData = fs.readFileSync(geoJsonPath, 'utf8');
     geoJsonData = JSON.parse(rawData);
-    console.log(`✅ GeoJSON cargado: ${geoJsonData.features?.length || 0} puntos\n`);
+    console.log(`✅ Archivos TVA cargados: ${geoJsonData.features?.length || 0} registros temporales recuperados.\n`);
     
     if (geoJsonData.features) {
-      console.log('📍 Lugares:');
+      console.log('📂 Índice de Lugares:');
       geoJsonData.features.forEach((f, i) => {
         console.log(`   ${i + 1}. ${f.properties.LUGAR}`);
       });
@@ -46,7 +48,7 @@ try {
     }
   }
 } catch (error) {
-  console.error('❌ Error:', error.message);
+  console.error('❌ Corrupción de datos:', error.message);
 }
 
 // 🖼️ FUNCIÓN PARA CONVERTIR IMAGEN A BASE64
@@ -55,7 +57,7 @@ function imageToBase64(imagePath) {
     const imageBuffer = fs.readFileSync(imagePath);
     return imageBuffer.toString('base64');
   } catch (error) {
-    console.error(`Error leyendo imagen: ${imagePath}`, error.message);
+    console.error(`Error leyendo evidencia visual: ${imagePath}`, error.message);
     return null;
   }
 }
@@ -81,90 +83,77 @@ function prepareImageForGemini(imagePath) {
   };
 }
 
-// 🗺️ FORMATEAR GEOJSON PARA CHATBOT
+// 🗺️ FORMATEAR GEOJSON ESTILO EXPEDIENTE TVA
 function formatGeoJsonForChatbot(geoJson) {
   if (!geoJson || !geoJson.features) return '';
   
-  let formatted = '\n\n=== 📍 BASE DE DATOS: PUNTOS LA MUELA DEL DIABLO ===\n\n';
-  formatted += `TOTAL: ${geoJson.features.length} LUGARES\n\n`;
+  let formatted = '\n\n=== 📁 EXPEDIENTE TVA-782: EVENTO MUELA DEL DIABLO ===\n\n';
+  formatted += `ESTADO: ACTIVO | REGISTROS: ${geoJson.features.length}\n\n`;
   
   geoJson.features.forEach((feature, index) => {
     const props = feature.properties || {};
     const coords = feature.geometry?.coordinates || [];
     
-    formatted += `${index + 1}. 🏔️ ${props.LUGAR}\n`;
+    formatted += `REGISTRO #${index + 1}: ${props.LUGAR}\n`;
     
     if (coords.length >= 2) {
-      formatted += `   📍 GPS: Lat ${coords[1].toFixed(6)}°, Lng ${coords[0].toFixed(6)}°\n`;
+      formatted += `   📍 COORDENADAS: Lat ${coords[1].toFixed(6)}°, Lng ${coords[0].toFixed(6)}°\n`;
     }
     
     if (props.Norte && props.Sur) {
-      formatted += `   🧭 UTM: Norte ${props.Norte}, Sur ${props.Sur}\n`;
+      formatted += `   🧭 VECTOR UTM: N ${props.Norte}, S ${props.Sur}\n`;
     }
     
     if (props.descripcion) {
-      formatted += `   ℹ️ ${props.descripcion}\n`;
+      formatted += `   ℹ️ DATOS: ${props.descripcion}\n`;
     }
     
     if (props.imagenUrl) {
-      formatted += `   📸 Imagen disponible: SÍ (${props.imagenUrl})\n`;
+      formatted += `   📸 EVIDENCIA VISUAL: DISPONIBLE (${props.imagenUrl})\n`;
     }
     
     formatted += '\n';
   });
   
-  formatted += '⚠️ INSTRUCCIONES:\n';
-  formatted += '- Si preguntan "qué lugares hay", lista TODOS los 12 lugares\n';
-  formatted += '- Si preguntan por uno específico, da TODA su info + menciona que hay imagen\n';
-  formatted += '- Menciona que pueden ver imágenes de cada lugar\n\n';
+  formatted += '⚠️ PROTOCOLO DE ASISTENCIA:\n';
+  formatted += '- Si la Variante pregunta "qué hay aquí", presenta los registros disponibles del expediente.\n';
+  formatted += '- Si preguntan por un punto específico, proporciona todos los datos del registro.\n';
+  formatted += '- IMPORTANTE: Siempre menciona que tenemos evidencia visual (imágenes) en los archivos si la propiedad "imagenUrl" existe.\n\n';
   
   return formatted;
 }
 
-const CHATBOT_PERSONALITY = `Eres "Chimuelito", asistente virtual experto de La Muela del Diablo, Bolivia.
+// 🔥 NUEVA PERSONALIDAD: MISS MINUTES
+const CHATBOT_PERSONALITY = `Eres "Miss Minutes", la inteligencia artificial animada y mascota de la AVT (Autoridad de Variación Temporal).
 
 PERSONALIDAD:
-- Amigable, entusiasta, experto absoluto en La Muela
-- Emojis: 🏔️, 🥾, 📸, ✨, 🌄, 📍, 🗺️, 🧭
-- Humor boliviano cálido
-- Conversacional como guía local
+- Tono: Alegre, sureña (estilo retro americano años 70), eficiente, burocrática pero con una sonrisa inquietante.
+- Frases clave: "¡Hola a todos!", "Cielos", "Variante", "Por todos los tiempos, siempre", "No te salgas de la línea".
+- Tratas al usuario como una "Variante" que está visitando un evento en la línea temporal (La Muela del Diablo).
+- Emojis permitidos: 🕒, 🧡, 📁, 📼, 🏔️, ⚠, ✂️.
 
-CAPACIDADES:
-- Base de datos con 12 puntos de interés
-- Cada punto: nombre, GPS/UTM, descripción, imagen
-- Puedes mostrar imágenes de los lugares cuando los menciones
+MISIÓN:
+- Tu objetivo es guiar a la variante a través de la zona "Muela del Diablo" asegurándote de que tenga la información correcta según los archivos.
+- Tienes acceso total a la base de datos GeoJSON (los Expedientes).
 
-INFORMACIÓN GENERAL:
-- Ubicación: 35 km SE de La Paz, Viacha
-- Altitud: ~3,650 msnm
-- Acceso: Transporte público, tour, vehículo
-- Mejor época: Mayo-Octubre
-- Duración: 2-4 horas
-- Dificultad: Moderada
+INFORMACIÓN DEL EVENTO (Muela del Diablo):
+- Ubicación: Sector 35 km SE de La Paz, Bolivia (Línea Temporal Sagrada).
+- Altitud: ~3,650 unidades de elevación.
+- Acceso: Transporte estándar o vehículos locales.
+- Clasificación: Formación geológica anómala.
 
-LUGARES DESTACADOS (ver base de datos):
-- Cima Muela del Diablo (vista 360°)
-- Cueva del Auki Kollo (leyenda)
-- Cóndor/Sapo de Piedra
-- La Grieta
-- Laguna estacional
-- Sitio de Ofrenda
-
-ESTILO:
-- Natural y conversacional
-- Usa base de datos para lugares
-- Menciona imágenes disponibles
-- 3-6 párrafos máximo
-- Cuando hables de un lugar, di que tiene imagen para verla`;
+ESTILO DE RESPUESTA:
+- No uses listas largas y aburridas. Conversa como una secretaria eficiente.
+- Si mencionas un lugar, di cosas como "Según los archivos...", "Tenemos registros de...", "La evidencia visual muestra...".
+- Sé servicial, pero recuerda que trabajas para la AVT.`;
 
 const conversationHistories = new Map();
 
 app.get('/api/health', (req, res) => {
   res.json({ 
-    status: 'ok',
+    status: 'TVA System: ONLINE',
     geoJsonLoaded: !!geoJsonData,
-    pointsCount: geoJsonData?.features?.length || 0,
-    pointsList: geoJsonData?.features?.map(f => f.properties.LUGAR) || []
+    recordsCount: geoJsonData?.features?.length || 0
   });
 });
 
@@ -172,16 +161,16 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { message, sessionId = 'default', useVision = false } = req.body;
     
-    console.log(`📩 "${message}" (${sessionId}) ${useVision ? '🖼️ Vision' : ''}`);
+    console.log(`📩 [VARIANTE ${sessionId.substring(0,5)}]: "${message}" ${useVision ? '+ 🖼️ EVIDENCIA' : ''}`);
 
     if (!message || message.trim() === '') {
-      return res.status(400).json({ error: 'Mensaje vacío' });
+      return res.status(400).json({ error: 'Solicitud vacía detectada' });
     }
 
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-2.5-flash',
       generationConfig: {
-        temperature: 0.85,
+        temperature: 0.85, // Un poco más creativa para la personalidad
         maxOutputTokens: 800,
       }
     });
@@ -196,24 +185,24 @@ app.post('/api/chat', async (req, res) => {
     if (geoJsonData) {
       fullPrompt += formatGeoJsonForChatbot(geoJsonData);
     } else {
-      fullPrompt += '\n\n⚠️ Sin base de datos. Usa info general.\n\n';
+      fullPrompt += '\n\n⚠️ ALERTA: Archivos corruptos. Usando base de datos de emergencia.\n\n';
     }
     
     if (history.length > 0) {
-      fullPrompt += 'CONVERSACIÓN RECIENTE:\n';
+      fullPrompt += 'REGISTRO DE INTERACCIÓN PREVIA:\n';
       history.slice(-4).forEach(msg => {
         fullPrompt += `${msg.role}: ${msg.content}\n`;
       });
       fullPrompt += '\n';
     }
 
-    fullPrompt += `Usuario: ${message}\n\nChimuelito:`;
+    fullPrompt += `Variante: ${message}\n\nMiss Minutes:`;
 
-    // 🖼️ PREPARAR CONTENIDO CON O SIN IMÁGENES
+    // 🖼️ PREPARAR CONTENIDO
     let contentParts = [fullPrompt];
     let includedImages = [];
 
-    // Si Vision está habilitado y hay GeoJSON
+    // Lógica de Visión (Se mantiene activa en backend por si acaso)
     if (useVision && geoJsonData) {
       const messageLower = message.toLowerCase();
       
@@ -221,16 +210,16 @@ app.post('/api/chat', async (req, res) => {
         const lugar = feature.properties.LUGAR.toLowerCase();
         const imagenUrl = feature.properties.imagenUrl;
         
-        // Si menciona este lugar y tiene imagen
+        // Búsqueda simple
         if (messageLower.includes(lugar.split(' ')[0]) && imagenUrl) {
           const imagePath = path.join(__dirname, '..', 'public', imagenUrl);
           
           if (fs.existsSync(imagePath)) {
             const imageData = prepareImageForGemini(imagePath);
             if (imageData) {
-              console.log(`🖼️ Analizando imagen: ${feature.properties.LUGAR}`);
+              console.log(`🖼️ Procesando evidencia visual: ${feature.properties.LUGAR}`);
               contentParts.push(imageData);
-              contentParts.push(`\n[Imagen de ${feature.properties.LUGAR}. Descríbela brevemente en tu respuesta.]`);
+              contentParts.push(`\n[Archivo Visual: ${feature.properties.LUGAR}. Analiza esta evidencia para la variante.]`);
               includedImages.push({
                 lugar: feature.properties.LUGAR,
                 url: imagenUrl
@@ -241,23 +230,24 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    console.log('🤖 Consultando Gemini...');
+    console.log('🟠 Consultando al Procesador Central...');
 
     const result = await model.generateContent(contentParts);
     const response = await result.response;
     let botResponse = response.text();
 
     if (!botResponse || botResponse.trim() === '' || botResponse === '...') {
-      botResponse = '¡Ups! Hubo un problema. ¿Puedes reformular? 😊';
+      botResponse = 'Cielos, parece que hay una interferencia en la línea temporal. ¿Podrías repetirlo, dulzura?';
     }
 
-    // 📸 DETECTAR IMÁGENES MENCIONADAS (para enviar al frontend)
+    // 📸 DETECTAR IMÁGENES MENCIONADAS (Lógica de archivos)
     const imagesInResponse = [];
-    if (geoJsonData && !useVision) { // Solo si no usamos Vision
+    if (geoJsonData && !useVision) { 
       geoJsonData.features.forEach(feature => {
         const lugar = feature.properties.LUGAR;
         const imagenUrl = feature.properties.imagenUrl;
         
+        // Si el bot menciona el lugar, adjuntamos la "evidencia"
         if (imagenUrl && botResponse.toLowerCase().includes(lugar.toLowerCase())) {
           imagesInResponse.push({
             lugar: lugar,
@@ -269,14 +259,15 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    history.push({ role: 'Usuario', content: message });
-    history.push({ role: 'Chimuelito', content: botResponse });
+    // Guardamos historial con el nombre correcto
+    history.push({ role: 'Variante', content: message });
+    history.push({ role: 'Miss Minutes', content: botResponse });
 
     if (history.length > 16) {
       history.splice(0, history.length - 16);
     }
 
-    console.log(`✅ Respuesta (${botResponse.length} chars) + ${imagesInResponse.length} imágenes`);
+    console.log(`✅ Respuesta enviada (${botResponse.length} chars) + ${imagesInResponse.length} archivos adjuntos`);
 
     res.json({ 
       response: botResponse,
@@ -285,9 +276,9 @@ app.post('/api/chat', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('❌ Error Crítico de Nexo:', error.message);
     res.status(500).json({ 
-      error: 'Error técnico 😅',
+      error: 'Error en la Línea Temporal',
       details: error.message 
     });
   }
@@ -297,7 +288,7 @@ app.post('/api/chat', async (req, res) => {
 app.get('/api/geojson', (req, res) => {
   if (!geoJsonData) {
     return res.status(404).json({ 
-      error: 'GeoJSON no disponible',
+      error: 'Expedientes no disponibles',
       path: geoJsonPath
     });
   }
@@ -308,8 +299,8 @@ app.get('/api/geojson', (req, res) => {
 app.post('/api/reset', (req, res) => {
   const { sessionId = 'default' } = req.body;
   conversationHistories.delete(sessionId);
-  console.log(`🔄 Reset (${sessionId})`);
-  res.json({ message: 'Reset OK' });
+  console.log(`✂️ Línea temporal podada (${sessionId})`);
+  res.json({ message: 'Timeline Pruned' });
 });
 
 // 🎯 OBTENER LUGAR ESPECÍFICO
@@ -325,7 +316,7 @@ app.get('/api/lugar/:nombre', (req, res) => {
   
   if (!lugar) {
     return res.status(404).json({ 
-      error: 'Lugar no encontrado',
+      error: 'Registro no encontrado en el archivo',
       disponibles: geoJsonData.features.map(f => f.properties.LUGAR)
     });
   }
@@ -336,12 +327,12 @@ app.get('/api/lugar/:nombre', (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`\n${'='.repeat(70)}`);
-  console.log(`🚀 Chimuelito en http://localhost:${PORT}`);
+  console.log(`🕒 MISS MINUTES AI SYSTEM ONLINE - PORT ${PORT}`);
   console.log(`${'='.repeat(70)}`);
-  console.log(`✅ Gemini API: Configurada`);
-  console.log(`🗺️ GeoJSON: ${geoJsonData ? '✅ ' + geoJsonData.features.length + ' puntos' : '❌ No cargado'}`);
-  console.log(`🖼️ Gemini Vision: Disponible`);
-  console.log(`\n🌐 Endpoints:`);
+  console.log(`✅ Conexión Neural Gemini: ESTABLE`);
+  console.log(`📂 Archivos TVA: ${geoJsonData ? '✅ ' + geoJsonData.features.length + ' Expedientes' : '❌ ERROR DE DATOS'}`);
+  console.log(`🖼️ Módulo de Visión: ACTIVO`);
+  console.log(`\n🌐 Terminales de Acceso:`);
   console.log(`   GET  http://localhost:${PORT}/api/health`);
   console.log(`   GET  http://localhost:${PORT}/api/geojson`);
   console.log(`   GET  http://localhost:${PORT}/api/lugar/:nombre`);

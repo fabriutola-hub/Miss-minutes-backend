@@ -9,7 +9,7 @@ const app = express();
 
 // Servir archivos estáticos (imágenes) si están en la carpeta public del backend
 // Esto asegura que la URL funcione si las imágenes viven en el servidor
-app.use(express.static('public')); 
+app.use(express.static(path.join(__dirname, 'public'))); 
 
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],

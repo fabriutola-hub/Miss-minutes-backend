@@ -7,16 +7,18 @@ require('dotenv').config();
 
 const app = express();
 
-// 🔥 1. ACTIVAR CARPETA PÚBLICA (Con ruta absoluta para Render)
+// 1. ACTIVAR CARPETA PÚBLICA (Con ruta absoluta para Render)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 🟢 CORRECCIÓN DE CORS: Dominio de Vercel sin el slash final (/)
+// 🟢 CORRECCIÓN DE CORS FINAL: Incluye ambos dominios de Vercel
 app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://localhost:3000',
-    // ✅ DOMINIO DE VERCEL CORREGIDO
-    'https://mi-proyecto-pe-xd-8sv6-bpb7gm2n6-fabriutola-hubs-projects.vercel.app'
+    // 1. Dominio de Preview (largo)
+    'https://mi-proyecto-pe-xd-8sv6-bpb7gm2n6-fabriutola-hubs-projects.vercel.app',
+    // 2. Dominio de Producción (corto) - NECESARIO PARA EL ENLACE PRINCIPAL
+    'https://mi-proyecto-pe-xd-8sv6.vercel.app'
   ],
   methods: ['GET', 'POST'],
   credentials: true
@@ -154,7 +156,7 @@ app.post('/api/chat', async (req, res) => {
     
     if (history.length > 0) {
       fullPrompt += 'REGISTRO PREVIO:\n';
-      // 🟢 CORRECCIÓN DE SINTAXIS: Se arregló la concatenación de la historia aquí
+      // 🟢 CORRECCIÓN DE SINTAXIS
       history.slice(-4).forEach(msg => {
         fullPrompt += `${msg.role}: ${msg.content}\n`;
       });
